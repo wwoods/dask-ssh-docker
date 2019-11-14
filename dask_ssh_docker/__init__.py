@@ -142,9 +142,13 @@ class Worker(Process):
         )
 
         # We watch stderr in order to get the address, then we return
+        tries = 99  # Sometimes a blank line is just a blank line
         while True:
             line = await self.proc.stdout.readline()
             if not line.strip():
+                tries -= 1
+                if tries != 0:
+                    continue
                 raise Exception("Worker failed to start")
             logger.info(line.strip())
             if "worker at" in line:
@@ -199,9 +203,13 @@ class Scheduler(Process):
                 **get_docker_createprocess_kwargs())
 
         # We watch stderr in order to get the address, then we return
+        tries = 99  # Sometimes a blank line is just a blank line
         while True:
             line = await self.proc.stdout.readline()
             if not line.strip():
+                tries -= 1
+                if tries != 0:
+                    continue
                 raise Exception("Worker failed to start: " + worker_cmd)
             logger.info(line.strip())
             if "Scheduler at" in line:
