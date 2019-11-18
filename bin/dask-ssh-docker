@@ -1,0 +1,104 @@
+#! /usr/bin/env python
+
+import argparse
+import os
+import re
+import sys
+
+def main():
+    parser = argparse.ArgumentParser(description="Launch a distributed cluster "
+            "over SSH, using docker images to distribute dependencies and "
+            "code.  The first host will run a 'dask-scheduler' process, and "
+            "subsequent hosts become 'dask-worker' processes.  Note that, "
+            "unlike 'dask-ssh', this script additionally accepts a script to "
+            "run on the cluster (following '--'), and accepts arguments next "
+            "to the hostname instead of separately.  E.g.:\n\n"
+            "  dask-ssh-docker 'localhost --nprocs 4' 'otherhost --nprocs 8'"
+            "\n\n.",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('hosts', nargs='+', type=str, help="Either a list of "
+            "host names with arguments, or a single filename which contains "
+            "such information on each line.")
+    parser.add_argument('--docker-login', action='store_true',
+            help="Specify to allow 'dask-ssh-docker' to grab credential from "
+                "~/.docker/config.json, if remote hosts need to pull "
+                "specified image from a private repository.  (see "
+                "'docker login' command).")
+    parser.add_argument('--image', type=str, default='daskdev/dask:latest',
+            help="Custom image containing required dependencies and code for "
+                "computation.")
+    parser.add_argument('-v', '--verbose', action='store_true',
+            help="Execute logging.basicConfig(level=logging.DEBUG) before "
+                "attempting connection, to debug connection issues.")
+
+    argv = sys.argv[1:]
+    argv_extra = None
+    try:
+        i = argv.index('--')
+    except ValueError:
+        pass
+    else:
+        argv_extra = argv[i+1:]
+        argv = argv[:i]
+    args = parser.parse_args(argv)
+    args.cmd_extra = argv_extra
+
+    if args.verbose:
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
+
+    if len(args.hosts) == 1:
+        # Must be a hostfile; if not, assert that there must be at least one
+        # worker.
+        try:
+            hostfile = open(args.hosts[0]).read()
+        except FileNotFoundError:
+            # Handled below
+            pass
+        else:
+            args.hosts = re.split('\r?\n', hostfile)
+
+    if len(args.hosts) <= 1:
+        raise ValueError("dask-ssh-docker requires at least two hosts to "
+                "be specified: a scheduler and one or more workers.")
+
+    # Construct the cluster which will be used for computation.
+    import dask_ssh_docker
+    cluster = dask_ssh_docker.SSHDockerCluster(hosts=args.hosts,
+            image=args.image, docker_login=args.docker_login)
+
+    # If there's no command, wait for a keystroke to exit
+    if args.cmd_extra is None:
+        print(cluster)
+        input('Press ENTER to kill cluster.')
+        return
+
+    # Initialize dask s.t. it uses the given cluster
+    import dask.distributed
+    client = dask.distributed.Client(cluster)
+
+    # Rewrite sys.argv[0] so e.g. argparse picks up correct program name.
+    sys.argv[0] = args.cmd_extra[0]
+
+    # Ensure the directory containing the script is on Python's PATH.  This is
+    # the default behavior if we were executing the script directly.
+    sys.path.insert(0, os.path.dirname(args.cmd_extra[0]))
+    print(sys.path)
+
+    # Assume command is a python module, which has a 'main' method which
+    # accepts the remaining args.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('dask_ssh_docker.main',
+            args.cmd_extra[0])
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+
+    if not hasattr(script, 'main'):
+        raise ValueError("dask-ssh-docker requires a script being "
+                "executed to have a 'main()' method, which accepts argv.")
+    script.main(args.cmd_extra[1:])
+
+
+if __name__ == '__main__':
+    main()
+

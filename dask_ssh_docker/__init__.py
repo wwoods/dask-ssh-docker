@@ -309,6 +309,11 @@ def SSHDockerCluster(
 ):
     """ Deploy a Dask cluster using SSH
 
+    Note that the helper binary, ``dask-ssh-docker``, is installed along with
+    this package, and obviates the need to call this function directly.  Plus,
+    it allows for user code which executes locally by default, but can leverage
+    a cluster.
+
     The SSHCluster function deploys a Dask Scheduler and Workers for you on a
     set of machine addresses that you provide.  The first address will be used
     for the scheduler while the rest will be used for the workers (feel free to

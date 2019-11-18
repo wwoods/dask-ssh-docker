@@ -1,11 +1,28 @@
-import logging
-logging.basicConfig(level=logging.DEBUG)
+'''Main script: must define a main() function which can take argv.  The
+``dask-ssh-docker`` script handles cluster setup and client connections, so
+user code does not need to deal with it.
 
-from dask_ssh_docker import SSHDockerCluster
-cluster = SSHDockerCluster(['localhost', 'localhost --nprocs 4 --nthreads 2'])
+Run as either
 
-import dask.distributed
-client = dask.distributed.Client(cluster)
+1. Locally:
 
-print(dask.delayed(sum)(range(1000)).compute())
+       python example/test.py
+
+2. Cluster:
+
+       dask-ssh-docker localhost localhost -- example/test.py
+'''
+
+import argparse
+import dask
+
+def main(argv=[]):
+    parser = argparse.ArgumentParser()
+    args = parser.parse_args(argv)
+
+    print(dask.delayed(sum)(range(1000)).compute())
+
+
+if __name__ == '__main__':
+    main()
 
