@@ -60,26 +60,28 @@ async def get_docker_image(connection, image):
     else:
         old_json = json.loads(r.stdout)
 
+    overwrote_json = True
     if (old_json is not None
             and old_json.get('auths', {}).get(docker_server, {}).get('auth')
                 == server_keys['auth']):
         # Nothing to do, auths match already
-        return
+        overwrote_json = False
 
-    # OK, need to add this server key, overwrite, pull, and restore file
-    if old_json is None:
-        new_json = {'auths': {docker_server: server_keys}}
-    else:
-        new_json = copy.deepcopy(old_json)
-        new_json.setdefault('auths', {})[docker_server] = server_keys
+    if overwrote_json:
+        # OK, need to add this server key, overwrite, pull, and restore file
+        if old_json is None:
+            new_json = {'auths': {docker_server: server_keys}}
+        else:
+            new_json = copy.deepcopy(old_json)
+            new_json.setdefault('auths', {})[docker_server] = server_keys
 
-    try:
-        await connection.run(f'mkdir -p ~/.docker', check=True)
-        await connection.run(f'cat > ~/.docker/config.json', check=True,
-                input=json.dumps(new_json))
-    except asyncssh.ProcessError as e:
-        logger.error(f'stderr: {e.stderr}')
-        raise e
+        try:
+            await connection.run(f'mkdir -p ~/.docker', check=True)
+            await connection.run(f'cat > ~/.docker/config.json', check=True,
+                    input=json.dumps(new_json))
+        except asyncssh.ProcessError as e:
+            logger.error(f'stderr: {e.stderr}')
+            raise e
 
     try:
         # Pull image
@@ -89,11 +91,12 @@ async def get_docker_image(connection, image):
         logger.error(f'stderr: {e.stderr}')
         raise e
     finally:
-        if old_json is not None:
-            await connection.run('cat > ~/.docker/config.json', check=True,
-                    input=json.dumps(old_json))
-        else:
-            await connection.run('rm ~/.docker/config.json', check=True)
+        if overwrote_json:
+            if old_json is not None:
+                await connection.run('cat > ~/.docker/config.json', check=True,
+                        input=json.dumps(old_json))
+            else:
+                await connection.run('rm ~/.docker/config.json', check=True)
 
 
 def get_docker_createprocess_kwargs():
